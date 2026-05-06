@@ -1108,16 +1108,18 @@ fbAuth.onAuthStateChanged(user => {
     document.getElementById('authOverlay').classList.remove('open');
     showUserBar(user);
 
-    // Load from Firebase
+    // Load from Firebase — if empty, save defaults
     dbRef.once('value').then(snap => {
       const fbData = snap.val();
       if (fbData && fbData.folders) {
         DB = fbData;
         localStorage.setItem('family-planner-local', JSON.stringify(DB));
-        renderSidebar();
-        renderAll();
+      } else {
+        dbRef.set(DB);
       }
-    });
+      renderSidebar();
+      renderAll();
+    }).catch(() => { renderSidebar(); renderAll(); });
 
     // Listen for realtime changes from other devices
     dbRef.on('value', snap => {
