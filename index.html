@@ -412,6 +412,8 @@ let dbRef = null;
 let syncTimeout = null;
 
 const LOCAL_KEY = 'family-planner-local';
+const FAMILY_KEY = 'family-space-id';
+
 const saveDB = (db) => {
   localStorage.setItem(LOCAL_KEY, JSON.stringify(db));
   if (!dbRef) return;
@@ -424,6 +426,16 @@ const loadDB = () => {
   try { return JSON.parse(localStorage.getItem(LOCAL_KEY)) || null; }
   catch { return null; }
 };
+
+function getFamilyRef(familyId) {
+  return fbDB.ref('families/' + familyId + '/data');
+}
+
+function generateFamilyId() {
+  // 6-char readable code
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
+}
 
 const EMOJIS = ['🤰','🏠','🔨','🛏️','🚗','💊','🎓','💼','🌿','🍼','🏗️','💡','🛁','🪴','🐾','📦','🎯','💰','🏋️','✈️'];
 
@@ -1116,65 +1128,124 @@ let fbInitialized = false;
 function isValidDB(data) {
   if (!data || !data.folders || !Array.isArray(data.folders)) return false;
   if (data.folders.length === 0) return false;
-  // Check both 'steps' and 'tasks' field names
   const total = data.folders.reduce((s,f) => {
-    const steps = Array.isArray(f.steps) ? f.steps.length : 0;
-    const tasks = Array.isArray(f.tasks) ? f.tasks.length : 0;
-    return s + steps + tasks;
+    return s + (Array.isArray(f.tasks) ? f.tasks.length : 0) + (Array.isArray(f.steps) ? f.steps.length : 0);
   }, 0);
   return total > 0;
+}
+
+function startFamilySync(familyId) {
+  dbRef = getFamilyRef(familyId);
+  localStorage.setItem(FAMILY_KEY, familyId);
+
+  dbRef.once('value').then(snap => {
+    const fbData = snap.val();
+    if (isValidDB(fbData)) {
+      DB = fbData;
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(DB));
+    } else {
+      DB = loadDB() || defaultDB();
+      dbRef.set(DB).catch(e => console.warn('FB write error:', e));
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(DB));
+    }
+    fbInitialized = true;
+    renderSidebar();
+    renderAll();
+
+    dbRef.on('value', snap => {
+      if (!fbInitialized) return;
+      const fbData = snap.val();
+      if (!isValidDB(fbData)) return;
+      const fbStr = JSON.stringify(fbData);
+      const localStr = JSON.stringify(DB);
+      if (fbStr !== localStr) {
+        DB = fbData;
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(DB));
+        renderSidebar();
+        renderAll();
+        if (curView === 'timeline') rg();
+      }
+    });
+  }).catch(err => {
+    DB = loadDB() || defaultDB();
+    fbInitialized = true;
+    renderSidebar();
+    renderAll();
+  });
+}
+
+function showFamilySetup(user) {
+  const savedFamily = localStorage.getItem(FAMILY_KEY);
+  if (savedFamily) {
+    // Already have a family space
+    startFamilySync(savedFamily);
+    return;
+  }
+
+  // Show family setup UI
+  const overlay = document.getElementById('authOverlay');
+  overlay.classList.add('open');
+  overlay.innerHTML = `
+    <div style="background:#1a1520;border-radius:18px;padding:32px 28px;text-align:center;max-width:360px;width:90%;box-shadow:0 24px 80px rgba(0,0,0,.5);">
+      <div style="font-size:36px;margin-bottom:12px;">👨‍👩‍👧</div>
+      <h2 style="font-family:'Fraunces',serif;font-size:20px;color:#fff;margin-bottom:8px;">Сімейний простір</h2>
+      <p style="font-size:12px;color:#8a8090;margin-bottom:24px;line-height:1.6;">Привіт, ${user.displayName || 'друже'}! Створи новий сімейний простір або приєднайся до існуючого за кодом.</p>
+      
+      <button onclick="createFamilySpace()" style="width:100%;padding:12px;border-radius:10px;border:none;background:#c97090;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;margin-bottom:12px;">
+        ✨ Створити новий простір
+      </button>
+      
+      <div style="margin-bottom:12px;color:#6a6070;font-size:11px;">або</div>
+      
+      <div style="display:flex;gap:8px;">
+        <input id="familyCodeInput" placeholder="Код запрошення (напр. ABC123)" style="flex:1;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:#fff;font-family:'DM Sans',sans-serif;font-size:13px;outline:none;" />
+        <button onclick="joinFamilySpace()" style="padding:10px 14px;border-radius:8px;border:none;background:#2a2430;color:#c97090;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;">→</button>
+      </div>
+      <div id="familyCodeError" style="color:#e06080;font-size:11px;margin-top:8px;display:none;">Код не знайдено. Перевір і спробуй ще.</div>
+    </div>
+  `;
+}
+
+function createFamilySpace() {
+  const familyId = generateFamilyId();
+  // Save admin info
+  fbDB.ref('families/' + familyId + '/meta').set({
+    createdBy: currentUser.uid,
+    createdAt: Date.now(),
+    adminName: currentUser.displayName || 'Адмін'
+  });
+  document.getElementById('authOverlay').classList.remove('open');
+  document.getElementById('authOverlay').innerHTML = ''; // reset overlay HTML
+  
+  // Show code to user
+  setTimeout(() => {
+    alert('🎉 Твій код сімейного простору: ' + familyId + '\n\nПоділись ним з мамою щоб вона могла приєднатися!');
+  }, 300);
+  
+  startFamilySync(familyId);
+}
+
+function joinFamilySpace() {
+  const code = (document.getElementById('familyCodeInput').value || '').trim().toUpperCase();
+  if (!code || code.length < 4) return;
+
+  fbDB.ref('families/' + code + '/meta').once('value').then(snap => {
+    if (snap.val()) {
+      document.getElementById('authOverlay').classList.remove('open');
+      document.getElementById('authOverlay').innerHTML = '';
+      startFamilySync(code);
+    } else {
+      document.getElementById('familyCodeError').style.display = 'block';
+    }
+  });
 }
 
 fbAuth.onAuthStateChanged(user => {
   if (user) {
     currentUser = user;
-    dbRef = getUserRef(user.uid);
     document.getElementById('authOverlay').classList.remove('open');
     showUserBar(user);
-
-    // Load from Firebase once
-    dbRef.once('value').then(snap => {
-      const fbData = snap.val();
-
-      if (isValidDB(fbData)) {
-        // Firebase has valid data — use it
-        DB = fbData;
-        localStorage.setItem('family-planner-local', JSON.stringify(DB));
-      } else {
-        // No valid data in Firebase — write defaults
-        DB = defaultDB();
-        localStorage.setItem('family-planner-local', JSON.stringify(DB));
-        dbRef.set(DB).catch(e => console.warn('FB write error:', e));
-      }
-
-      fbInitialized = true;
-      renderSidebar();
-      renderAll();
-
-      // Only start realtime listener AFTER initial load
-      dbRef.on('value', snap => {
-        if (!fbInitialized) return;
-        const fbData = snap.val();
-        if (!isValidDB(fbData)) return; // never overwrite with empty data
-        const fbStr = JSON.stringify(fbData);
-        const localStr = JSON.stringify(DB);
-        if (fbStr !== localStr) {
-          DB = fbData;
-          localStorage.setItem('family-planner-local', JSON.stringify(DB));
-          renderSidebar();
-          renderAll();
-          if (curView === 'timeline') rg();
-        }
-      });
-
-    }).catch(err => {
-      console.warn('Firebase load error:', err);
-      DB = loadDB() || defaultDB();
-      fbInitialized = true;
-      renderSidebar();
-      renderAll();
-    });
-
+    showFamilySetup(user);
   } else {
     document.getElementById('authOverlay').classList.add('open');
   }
