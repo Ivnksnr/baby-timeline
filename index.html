@@ -235,6 +235,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
   .two-col{grid-template-columns:1fr;}
 }
 
+#authOverlay { display: none; }
 #authOverlay.open { display: flex !important; }
 #googleSignInBtn:hover { opacity: .85; }
 </style>
@@ -1177,14 +1178,15 @@ function startFamilySync(familyId) {
 function showFamilySetup(user) {
   const savedFamily = localStorage.getItem(FAMILY_KEY);
   if (savedFamily) {
-    // Already have a family space
     startFamilySync(savedFamily);
     return;
   }
 
   // Show family setup UI
   const overlay = document.getElementById('authOverlay');
+  overlay.style.display = 'flex';
   overlay.classList.add('open');
+  // Reset inner content to family setup
   overlay.innerHTML = `
     <div style="background:#1a1520;border-radius:18px;padding:32px 28px;text-align:center;max-width:360px;width:90%;box-shadow:0 24px 80px rgba(0,0,0,.5);">
       <div style="font-size:36px;margin-bottom:12px;">👨‍👩‍👧</div>
@@ -1214,8 +1216,10 @@ function createFamilySpace() {
     createdAt: Date.now(),
     adminName: currentUser.displayName || 'Адмін'
   });
-  document.getElementById('authOverlay').classList.remove('open');
-  document.getElementById('authOverlay').innerHTML = ''; // reset overlay HTML
+  const ov = document.getElementById('authOverlay');
+  ov.classList.remove('open');
+  ov.style.display = 'none';
+  ov.innerHTML = '';
   
   // Show code to user
   setTimeout(() => {
@@ -1231,8 +1235,10 @@ function joinFamilySpace() {
 
   fbDB.ref('families/' + code + '/meta').once('value').then(snap => {
     if (snap.val()) {
-      document.getElementById('authOverlay').classList.remove('open');
-      document.getElementById('authOverlay').innerHTML = '';
+      const ov2 = document.getElementById('authOverlay');
+      ov2.classList.remove('open');
+      ov2.style.display = 'none';
+      ov2.innerHTML = '';
       startFamilySync(code);
     } else {
       document.getElementById('familyCodeError').style.display = 'block';
