@@ -499,7 +499,7 @@ async function manualPull() {
   btn.disabled = true;
 
   if (!gistIdResolved) {
-    btn.textContent = '⚠️ Немає з'єднання';
+    btn.textContent = '⚠️ Немає зєднання';
     setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
     return;
   }
