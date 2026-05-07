@@ -6,9 +6,6 @@
 <title>Сімейний планувальник 👨‍👩‍👧</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,600;1,300&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
 :root{
   --ink:#0a0810;--ink2:#2a2430;--ink3:#6a6070;
@@ -235,9 +232,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
   .two-col{grid-template-columns:1fr;}
 }
 
-#authOverlay { display: none; }
-#authOverlay.open { display: flex !important; }
-#googleSignInBtn:hover { opacity: .85; }
 </style>
 </head>
 <body>
@@ -393,50 +387,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
 
 <script>
 // ═══════════════════════════════════
-// FIREBASE + AUTH
+// STORAGE
 // ═══════════════════════════════════
-const FB_CONFIG = {
-  apiKey: "AIzaSyBM0FBBCY11nkS3EZEocX5Eq3746gXQ5xo",
-  authDomain: "baby-timeline-f37e2.firebaseapp.com",
-  databaseURL: "https://baby-timeline-f37e2-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "baby-timeline-f37e2",
-  storageBucket: "baby-timeline-f37e2.firebasestorage.app",
-  messagingSenderId: "483127266956",
-  appId: "1:483127266956:web:8f1adfb655f051b0ed35a9"
-};
-firebase.initializeApp(FB_CONFIG);
-const fbAuth = firebase.auth();
-const fbDB = firebase.database();
-
-let currentUser = null;
-let dbRef = null;
-let syncTimeout = null;
-
-const LOCAL_KEY = 'family-planner-local';
-const FAMILY_KEY = 'family-space-id';
-
-const saveDB = (db) => {
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(db));
-  if (!dbRef) return;
-  clearTimeout(syncTimeout);
-  syncTimeout = setTimeout(() => {
-    dbRef.set(db).catch(e => console.warn('FB save err:', e));
-  }, 600);
-};
-const loadDB = () => {
-  try { return JSON.parse(localStorage.getItem(LOCAL_KEY)) || null; }
-  catch { return null; }
-};
-
-function getFamilyRef(familyId) {
-  return fbDB.ref('families/' + familyId + '/data');
-}
-
-function generateFamilyId() {
-  // 6-char readable code
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({length:6}, () => chars[Math.floor(Math.random()*chars.length)]).join('');
-}
+const SK = 'family-planner-v1';
+const saveDB = db => localStorage.setItem(SK, JSON.stringify(db));
+const loadDB = () => { try { return JSON.parse(localStorage.getItem(SK)) || null; } catch { return null; } };
 
 const EMOJIS = ['🤰','🏠','🔨','🛏️','🚗','💊','🎓','💼','🌿','🍼','🏗️','💡','🛁','🪴','🐾','📦','🎯','💰','🏋️','✈️'];
 
@@ -581,14 +536,6 @@ function getTask(folder, taskId) {
 // SIDEBAR
 // ═══════════════════════════════════
 
-function resetToDefaults() {
-  if (!confirm('Скинути всі дані до початкових? Всі зміни будуть втрачені.')) return;
-  DB = defaultDB();
-  localStorage.setItem('family-planner-local', JSON.stringify(DB));
-  if (dbRef) dbRef.set(DB);
-  renderSidebar();
-  renderAll();
-}
 
 function renderSidebar() {
   const list = document.getElementById('folderList');
@@ -1092,199 +1039,10 @@ document.addEventListener('keydown', e => {
 // INIT
 // ═══════════════════════════════════
 
-// ═══════════════════════════════════
-// AUTH & FIREBASE SYNC
-// ═══════════════════════════════════
-function signInGoogle() {
-  const provider = new firebase.auth.GoogleAuthProvider();
-  fbAuth.signInWithPopup(provider).catch(e => {
-    console.error('Sign in error:', e);
-    alert('Помилка входу: ' + e.message);
-  });
-}
-
-function signOut() {
-  fbAuth.signOut().then(() => {
-    currentUser = null; dbRef = null;
-    document.getElementById('userBar').style.display = 'none';
-    document.getElementById('authOverlay').classList.add('open');
-  });
-}
-
-function skipAuth() {
-  document.getElementById('authOverlay').classList.remove('open');
-}
-
-function showUserBar(user) {
-  const bar = document.getElementById('userBar');
-  bar.style.display = 'flex';
-  document.getElementById('userName').textContent = user.displayName || user.email || 'Користувач';
-  const avatar = document.getElementById('userAvatar');
-  if (user.photoURL) { avatar.src = user.photoURL; avatar.style.display = 'block'; }
-}
-
-// Firebase auth state listener
-let fbInitialized = false;
-
-function isValidDB(data) {
-  if (!data || !data.folders || !Array.isArray(data.folders)) return false;
-  if (data.folders.length === 0) return false;
-  const total = data.folders.reduce((s,f) => {
-    return s + (Array.isArray(f.tasks) ? f.tasks.length : 0) + (Array.isArray(f.steps) ? f.steps.length : 0);
-  }, 0);
-  return total > 0;
-}
-
-function startFamilySync(familyId) {
-  dbRef = getFamilyRef(familyId);
-  localStorage.setItem(FAMILY_KEY, familyId);
-
-  dbRef.once('value').then(snap => {
-    const fbData = snap.val();
-    if (isValidDB(fbData)) {
-      DB = fbData;
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(DB));
-    } else {
-      DB = loadDB() || defaultDB();
-      dbRef.set(DB).catch(e => console.warn('FB write error:', e));
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(DB));
-    }
-    fbInitialized = true;
-    renderSidebar();
-    renderAll();
-
-    dbRef.on('value', snap => {
-      if (!fbInitialized) return;
-      const fbData = snap.val();
-      if (!isValidDB(fbData)) return;
-      const fbStr = JSON.stringify(fbData);
-      const localStr = JSON.stringify(DB);
-      if (fbStr !== localStr) {
-        DB = fbData;
-        localStorage.setItem(LOCAL_KEY, JSON.stringify(DB));
-        renderSidebar();
-        renderAll();
-        if (curView === 'timeline') rg();
-      }
-    });
-  }).catch(err => {
-    DB = loadDB() || defaultDB();
-    fbInitialized = true;
-    renderSidebar();
-    renderAll();
-  });
-}
-
-function showFamilySetup(user) {
-  const savedFamily = localStorage.getItem(FAMILY_KEY);
-  if (savedFamily) {
-    startFamilySync(savedFamily);
-    return;
-  }
-
-  // Show family setup UI
-  const overlay = document.getElementById('authOverlay');
-  overlay.style.display = 'flex';
-  overlay.classList.add('open');
-  // Reset inner content to family setup
-  overlay.innerHTML = `
-    <div style="background:#1a1520;border-radius:18px;padding:32px 28px;text-align:center;max-width:360px;width:90%;box-shadow:0 24px 80px rgba(0,0,0,.5);">
-      <div style="font-size:36px;margin-bottom:12px;">👨‍👩‍👧</div>
-      <h2 style="font-family:'Fraunces',serif;font-size:20px;color:#fff;margin-bottom:8px;">Сімейний простір</h2>
-      <p style="font-size:12px;color:#8a8090;margin-bottom:24px;line-height:1.6;">Привіт, ${user.displayName || 'друже'}! Створи новий сімейний простір або приєднайся до існуючого за кодом.</p>
-      
-      <button onclick="createFamilySpace()" style="width:100%;padding:12px;border-radius:10px;border:none;background:#c97090;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;margin-bottom:12px;">
-        ✨ Створити новий простір
-      </button>
-      
-      <div style="margin-bottom:12px;color:#6a6070;font-size:11px;">або</div>
-      
-      <div style="display:flex;gap:8px;">
-        <input id="familyCodeInput" placeholder="Код запрошення (напр. ABC123)" style="flex:1;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:#fff;font-family:'DM Sans',sans-serif;font-size:13px;outline:none;" />
-        <button onclick="joinFamilySpace()" style="padding:10px 14px;border-radius:8px;border:none;background:#2a2430;color:#c97090;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;">→</button>
-      </div>
-      <div id="familyCodeError" style="color:#e06080;font-size:11px;margin-top:8px;display:none;">Код не знайдено. Перевір і спробуй ще.</div>
-    </div>
-  `;
-}
-
-function createFamilySpace() {
-  const familyId = generateFamilyId();
-  // Save admin info
-  fbDB.ref('families/' + familyId + '/meta').set({
-    createdBy: currentUser.uid,
-    createdAt: Date.now(),
-    adminName: currentUser.displayName || 'Адмін'
-  });
-  const ov = document.getElementById('authOverlay');
-  ov.classList.remove('open');
-  ov.style.display = 'none';
-  ov.innerHTML = '';
-  
-  // Show code to user
-  setTimeout(() => {
-    alert('🎉 Твій код сімейного простору: ' + familyId + '\n\nПоділись ним з мамою щоб вона могла приєднатися!');
-  }, 300);
-  
-  startFamilySync(familyId);
-}
-
-function joinFamilySpace() {
-  const code = (document.getElementById('familyCodeInput').value || '').trim().toUpperCase();
-  if (!code || code.length < 4) return;
-
-  fbDB.ref('families/' + code + '/meta').once('value').then(snap => {
-    if (snap.val()) {
-      const ov2 = document.getElementById('authOverlay');
-      ov2.classList.remove('open');
-      ov2.style.display = 'none';
-      ov2.innerHTML = '';
-      startFamilySync(code);
-    } else {
-      document.getElementById('familyCodeError').style.display = 'block';
-    }
-  });
-}
-
-fbAuth.onAuthStateChanged(user => {
-  if (user) {
-    currentUser = user;
-    document.getElementById('authOverlay').classList.remove('open');
-    showUserBar(user);
-    showFamilySetup(user);
-  } else {
-    document.getElementById('authOverlay').classList.add('open');
-  }
-});
-
-function getUserRef(uid) {
-  return fbDB.ref('users/' + uid + '/data');
-}
-
 renderSidebar();
 renderAll();
 window.addEventListener('resize', () => { if (curView === 'timeline') rg(); });
 </script>
 
-<!-- AUTH OVERLAY -->
-<div id="authOverlay" style="display:none;position:fixed;inset:0;background:rgba(10,8,15,.92);z-index:2000;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
-  <div style="background:#1a1520;border-radius:18px;padding:32px 28px;text-align:center;max-width:340px;width:90%;box-shadow:0 24px 80px rgba(0,0,0,.5);">
-    <div style="font-size:40px;margin-bottom:12px;">👨‍👩‍👧</div>
-    <h2 style="font-family:'Fraunces',serif;font-size:22px;font-weight:600;color:#fff;margin-bottom:6px;">Сімейний планувальник</h2>
-    <p style="font-size:13px;color:#8a8090;margin-bottom:24px;line-height:1.5;">Увійди щоб синхронізувати дані між пристроями</p>
-    <button id="googleSignInBtn" onclick="signInGoogle()" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:12px 16px;border-radius:10px;border:none;background:#fff;color:#1a1520;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;transition:opacity .15s;">
-      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/></svg>
-      Увійти через Google
-    </button>
-    <button onclick="skipAuth()" style="margin-top:10px;width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.1);background:transparent;color:#6a6070;font-family:'DM Sans',sans-serif;font-size:12px;cursor:pointer;">Продовжити без входу</button>
-  </div>
-</div>
-
-<!-- USER BAR (shown when logged in) -->
-<div id="userBar" style="display:none;position:fixed;bottom:16px;right:16px;z-index:500;background:#1a1520;border-radius:10px;padding:8px 12px;display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,.3);">
-  <img id="userAvatar" src="" width="24" height="24" style="border-radius:50%;display:none;">
-  <span id="userName" style="font-size:11px;color:#cac0d0;"></span>
-  <button onclick="signOut()" style="font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid rgba(255,255,255,.15);background:transparent;color:#8a8090;cursor:pointer;font-family:'DM Sans',sans-serif;">Вийти</button>
-</div>
 </body>
 </html>
