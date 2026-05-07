@@ -52,6 +52,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
 .vtoggle{display:flex;background:#f0eef4;border-radius:9px;padding:3px;gap:2px;margin-left:auto;flex-shrink:0;}
 .vbtn{padding:5px 10px;border-radius:6px;border:none;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;background:transparent;color:var(--ink3);transition:all .15s;white-space:nowrap;}
 .vbtn.active{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.1);}
+.sync-btn{display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:7px;border:none;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;}
+.pull-btn{background:#f0eef4;color:var(--ink2);}
+.pull-btn:hover{background:#e8e4f0;}
+.push-btn{background:#0a0810;color:#fff;}
+.push-btn:hover{background:#2a2430;}
+.push-btn.saving{background:#3b6d11;}
+.push-btn.error{background:#a32d2d;}
 .add-btn{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:7px;border:none;background:var(--ink);color:white;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;flex-shrink:0;}
 .add-btn:hover{opacity:.82;}
 
@@ -455,6 +462,69 @@ function showSync(icon) {
   el.textContent = icon;
   el.style.opacity = '1';
   setTimeout(() => el.style.opacity = '0.3', 2000);
+}
+
+async function manualPush() {
+  const btn = document.querySelector('.push-btn');
+  if (!btn) return;
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Збереження...';
+  btn.disabled = true;
+  btn.classList.add('saving');
+  
+  if (!gistIdResolved) {
+    await initGist();
+  } else {
+    const r = await gistReq('PATCH', '/gists/' + gistIdResolved, {
+      files: { [GIST_FILE]: { content: JSON.stringify(DB, null, 2) } }
+    });
+    if (r) {
+      btn.textContent = '✅ Збережено';
+      btn.classList.remove('saving');
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+    } else {
+      btn.textContent = '❌ Помилка';
+      btn.classList.remove('saving');
+      btn.classList.add('error');
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.classList.remove('error'); }, 3000);
+    }
+  }
+}
+
+async function manualPull() {
+  const btn = document.querySelector('.pull-btn');
+  if (!btn) return;
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Завантаження...';
+  btn.disabled = true;
+
+  if (!gistIdResolved) {
+    btn.textContent = '⚠️ Немає з'єднання';
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+    return;
+  }
+
+  const r = await gistReq('GET', '/gists/' + gistIdResolved);
+  if (r?.files?.[GIST_FILE]?.content) {
+    try {
+      const remote = JSON.parse(r.files[GIST_FILE].content);
+      if (remote?.folders?.length > 0) {
+        DB = remote;
+        saveLocal(DB);
+        renderSidebar();
+        renderAll();
+        if (curView === 'timeline') rg();
+        btn.textContent = '✅ Оновлено';
+      } else {
+        btn.textContent = '— Без змін';
+      }
+    } catch(e) {
+      btn.textContent = '❌ Помилка';
+    }
+  } else {
+    btn.textContent = '❌ Не вдалось';
+  }
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
 }
 
 async function initGist() {
