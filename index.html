@@ -256,10 +256,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
     Новий розділ
   </button>
   <div class="sb-div"></div>
-  <div style="display:flex;gap:5px;padding:6px 6px 4px;">
+  <div style="display:flex;gap:5px;padding:6px 6px 2px;">
     <button onclick="manualPull()" id="pullBtn" style="flex:1;padding:7px 4px;border-radius:7px;border:1px solid rgba(255,255,255,.12);background:transparent;color:rgba(255,255,255,.5);font-family:'DM Sans',sans-serif;font-size:10px;cursor:pointer;">⬇ Оновити</button>
     <button onclick="manualPush()" id="pushBtn" style="flex:1;padding:7px 4px;border-radius:7px;border:none;background:rgba(201,112,144,.25);color:#c97090;font-family:'DM Sans',sans-serif;font-size:10px;font-weight:500;cursor:pointer;">⬆ Зберегти</button>
   </div>
+  <button onclick="copyShareLink()" id="shareBtn" style="display:block;margin:4px 6px 2px;width:calc(100% - 12px);padding:7px;border-radius:7px;border:1px solid rgba(255,255,255,.08);background:transparent;color:rgba(255,255,255,.35);font-family:'DM Sans',sans-serif;font-size:10px;cursor:pointer;">🔗 Скопіювати посилання для мами</button>
   <div class="sb-foot"><span id="syncDot" style="opacity:0.3;margin-right:4px;">●</span>Baby Timeline v3.0</div>
 </aside>
 
@@ -402,11 +403,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
 // ═══════════════════════════════════
 const SK = 'family-planner-v1';
 const GIST_TOKEN = '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';
-const GIST_ID = 'WILL_BE_SET'; // set after first run
 const GIST_FILE = 'family-planner-data.json';
+const GIST_DESC = 'family-planner-shared-v1';
+let gistId = null;
 let isSyncing = false;
 let saveTimeout = null;
-let gistIdResolved = localStorage.getItem('fp-gist-id') || null;
 
 const saveLocal = db => localStorage.setItem(SK, JSON.stringify(db));
 const loadDB = () => { try { return JSON.parse(localStorage.getItem(SK)) || null; } catch { return null; } };
@@ -414,7 +415,7 @@ const loadDB = () => { try { return JSON.parse(localStorage.getItem(SK)) || null
 const saveDB = (db) => {
   saveLocal(db);
   clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => gistSave(db), 1200);
+  saveTimeout = setTimeout(() => gistSave(db), 1500);
 };
 
 async function gistReq(method, path, body) {
@@ -434,17 +435,17 @@ async function gistReq(method, path, body) {
 }
 
 async function gistSave(db) {
-  if (!gistIdResolved) return;
-  await gistReq('PATCH', '/gists/' + gistIdResolved, {
+  if (!gistId) return;
+  await gistReq('PATCH', '/gists/' + gistId, {
     files: { [GIST_FILE]: { content: JSON.stringify(db, null, 2) } }
   });
   showSync('✅');
 }
 
-async function gistPoll() {
-  if (!gistIdResolved || isSyncing) return;
+async function gistLoad() {
+  if (!gistId || isSyncing) return;
   isSyncing = true;
-  const r = await gistReq('GET', '/gists/' + gistIdResolved);
+  const r = await gistReq('GET', '/gists/' + gistId);
   isSyncing = false;
   if (!r?.files?.[GIST_FILE]?.content) return;
   try {
@@ -465,72 +466,53 @@ function showSync(icon) {
   if (!el) return;
   el.textContent = icon;
   el.style.opacity = '1';
-  setTimeout(() => el.style.opacity = '0.3', 2000);
+  setTimeout(() => el.style.opacity = '0.3', 3000);
 }
 
 async function manualPush() {
   const btn = document.getElementById('pushBtn');
   if (!btn) return;
   const orig = btn.textContent;
-  btn.textContent = '⏳...';
-  btn.disabled = true;
-  
-  if (!gistIdResolved) {
-    await initGist();
-  } else {
-    const r = await gistReq('PATCH', '/gists/' + gistIdResolved, {
-      files: { [GIST_FILE]: { content: JSON.stringify(DB, null, 2) } }
-    });
-    if (r) {
-      btn.textContent = '✅ Ok';
-      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
-    } else {
-      btn.textContent = '❌';
-      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
-    }
-  }
+  btn.textContent = '⏳...'; btn.disabled = true;
+  if (!gistId) { await initGist(); btn.textContent = orig; btn.disabled = false; return; }
+  const r = await gistReq('PATCH', '/gists/' + gistId, {
+    files: { [GIST_FILE]: { content: JSON.stringify(DB, null, 2) } }
+  });
+  btn.textContent = r ? '✅ Ok' : '❌';
+  setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
 }
 
 async function manualPull() {
   const btn = document.getElementById('pullBtn');
   if (!btn) return;
   const orig = btn.textContent;
-  btn.textContent = '⏳...';
-  btn.disabled = true;
-
-  if (!gistIdResolved) {
-    btn.textContent = '⚠️ Немає зєднання';
-    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
-    return;
-  }
-
-  const r = await gistReq('GET', '/gists/' + gistIdResolved);
-  if (r?.files?.[GIST_FILE]?.content) {
-    try {
-      const remote = JSON.parse(r.files[GIST_FILE].content);
-      if (remote?.folders?.length > 0) {
-        DB = remote;
-        saveLocal(DB);
-        renderSidebar();
-        renderAll();
-        if (curView === 'timeline') rg();
-        btn.textContent = '✅ Ok';
-      } else {
-        btn.textContent = '—';
-      }
-    } catch(e) {
-      btn.textContent = '❌';
-    }
-  } else {
-    btn.textContent = '❌';
-  }
+  btn.textContent = '⏳...'; btn.disabled = true;
+  await gistLoad();
+  btn.textContent = '✅ Ok';
   setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
 }
 
 async function initGist() {
-  // If we already know the gist ID — just load and start polling
-  if (gistIdResolved) {
-    const r = await gistReq('GET', '/gists/' + gistIdResolved);
+  // 1. Check URL for shared gist id: ?g=GIST_ID
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlGistId = urlParams.get('g');
+  
+  // 2. Check localStorage
+  const localGistId = localStorage.getItem('fp-gist-id');
+  
+  if (urlGistId) {
+    // Use gist from URL — save locally
+    gistId = urlGistId;
+    localStorage.setItem('fp-gist-id', gistId);
+    // Remove from URL without reload
+    window.history.replaceState({}, '', window.location.pathname);
+  } else if (localGistId) {
+    gistId = localGistId;
+  }
+
+  if (gistId) {
+    // Load from existing gist
+    const r = await gistReq('GET', '/gists/' + gistId);
     if (r?.files?.[GIST_FILE]?.content) {
       try {
         const remote = JSON.parse(r.files[GIST_FILE].content);
@@ -539,31 +521,70 @@ async function initGist() {
           saveLocal(DB);
           renderSidebar();
           renderAll();
+          showSync('✅');
         }
       } catch(e) {}
     } else {
-      // Gist gone — recreate
-      gistIdResolved = null;
+      // Gist gone — create new
+      gistId = null;
       localStorage.removeItem('fp-gist-id');
+      await createGist();
+    }
+  } else {
+    // First time — find or create gist
+    await findOrCreateGist();
+  }
+  
+  // Poll every 20 seconds
+  setInterval(gistLoad, 20000);
+  
+  // Show share link in console
+  if (gistId) {
+    const shareUrl = window.location.origin + window.location.pathname + '?g=' + gistId;
+    console.log('%c🔗 Посилання для мами: ' + shareUrl, 'color:#c97090;font-size:14px;font-weight:bold;');
+    // Update share button if exists
+    const shareBtn = document.getElementById('shareBtn');
+    if (shareBtn) shareBtn.style.display = 'block';
+  }
+}
+
+async function findOrCreateGist() {
+  // Search existing gists for our description
+  const gists = await gistReq('GET', '/gists?per_page=100');
+  if (gists) {
+    const found = gists.find(g => g.description === GIST_DESC);
+    if (found) {
+      gistId = found.id;
+      localStorage.setItem('fp-gist-id', gistId);
       await initGist();
       return;
     }
-  } else {
-    // Create new gist with current data
-    const r = await gistReq('POST', '/gists', {
-      description: 'family-planner-shared-data',
-      public: false,
-      files: { [GIST_FILE]: { content: JSON.stringify(DB, null, 2) } }
-    });
-    if (r?.id) {
-      gistIdResolved = r.id;
-      localStorage.setItem('fp-gist-id', gistIdResolved);
-      showSync('✅');
-    }
   }
-  // Poll every 15 seconds
-  setInterval(gistPoll, 15000);
+  await createGist();
 }
+
+async function createGist() {
+  const r = await gistReq('POST', '/gists', {
+    description: GIST_DESC,
+    public: false,
+    files: { [GIST_FILE]: { content: JSON.stringify(DB, null, 2) } }
+  });
+  if (r?.id) {
+    gistId = r.id;
+    localStorage.setItem('fp-gist-id', gistId);
+    showSync('✅');
+  }
+}
+
+function copyShareLink() {
+  if (!gistId) { alert('Зачекай — синхронізація ще налаштовується...'); return; }
+  const shareUrl = window.location.origin + window.location.pathname + '?g=' + gistId;
+  navigator.clipboard.writeText(shareUrl).then(() => {
+    const btn = document.getElementById('shareBtn');
+    if (btn) { const orig = btn.textContent; btn.textContent = '✅ Скопійовано!'; setTimeout(() => btn.textContent = orig, 2000); }
+  });
+}
+
 const EMOJIS = ['🤰','🏠','🔨','🛏️','🚗','💊','🎓','💼','🌿','🍼','🏗️','💡','🛁','🪴','🐾','📦','🎯','💰','🏋️','✈️'];
 
 // DEFAULT FOLDERS
