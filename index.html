@@ -285,7 +285,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
       <div class="bdash" id="bdash">
         <div class="bdash-hdr">
           <h3>💰 Бюджет розділу</h3>
-          <div class="btoggle" onclick="toggleBudget()">згорнути ▲</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+            <select id="curSel" onchange="setFolderCurrency(this.value)" style="padding:5px 8px;border-radius:7px;border:1px solid var(--border);background:var(--bg);font-family:'DM Sans',sans-serif;font-size:11px;color:var(--ink2);cursor:pointer;outline:none;">
+              <option value="UAH">₴ UAH</option>
+              <option value="PLN">zł PLN</option>
+              <option value="USD">$ USD</option>
+              <option value="EUR">€ EUR</option>
+            </select>
+            <div class="btoggle" onclick="toggleBudget()">згорнути ▲</div>
+          </div>
         </div>
         <div id="bdashBody">
           <div class="bgrid">
@@ -337,8 +345,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
     <div class="mf"><label>Посилання</label><input type="text" id="mL" placeholder="https://..."></div>
     <div class="msec">💰 Витрати</div>
     <div class="two-col">
-      <div class="mf"><label>Кошторис</label><div class="cur"><span class="cur-sym">₴</span><input type="number" id="mEst" placeholder="0" min="0"></div></div>
-      <div class="mf"><label>Фактично</label><div class="cur"><span class="cur-sym">₴</span><input type="number" id="mSpent" placeholder="0" min="0"></div></div>
+      <div class="mf"><label>Кошторис</label><div class="cur"><span class="cur-sym" id="mEstSym">₴</span><input type="number" id="mEst" placeholder="0" min="0"></div></div>
+      <div class="mf"><label>Фактично</label><div class="cur"><span class="cur-sym" id="mSpentSym">₴</span><input type="number" id="mSpent" placeholder="0" min="0"></div></div>
     </div>
     <div class="mf"><label>Опис витрат</label><input type="text" id="mCN" placeholder="Що оплачено..."></div>
     <div class="mact"><button class="btnc" onclick="cm()">Скасувати</button><button class="btns" onclick="sm()">Зберегти</button></div>
@@ -363,8 +371,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
     <div class="mf"><label>Посилання</label><input type="text" id="aL" placeholder="https://..."></div>
     <div class="msec">💰 Бюджет</div>
     <div class="two-col">
-      <div class="mf"><label>Кошторис</label><div class="cur"><span class="cur-sym">₴</span><input type="number" id="aEst" placeholder="0" min="0"></div></div>
-      <div class="mf"><label>Фактично</label><div class="cur"><span class="cur-sym">₴</span><input type="number" id="aSpent" placeholder="0" min="0"></div></div>
+      <div class="mf"><label>Кошторис</label><div class="cur"><span class="cur-sym" id="aEstSym">₴</span><input type="number" id="aEst" placeholder="0" min="0"></div></div>
+      <div class="mf"><label>Фактично</label><div class="cur"><span class="cur-sym" id="aSpentSym">₴</span><input type="number" id="aSpent" placeholder="0" min="0"></div></div>
     </div>
     <div class="mf"><label>Опис витрат</label><input type="text" id="aCN" placeholder="Що оплачено..."></div>
     <div class="mact"><button class="btnc" onclick="closeAdd()">Скасувати</button><button class="btns" onclick="addStep()">Додати крок</button></div>
@@ -612,7 +620,7 @@ function defaultDB() {
         state: {}
       },
       {
-        id: 'birth_pl', name: 'Пологи в Польщі', emoji: '🇵🇱', color: '#dc143c',
+        id: 'birth_pl', name: 'Пологи в Польщі', emoji: '🇵🇱', color: '#dc143c', currency: 'PLN',
         categories: ['milestone','medical','finance','domestic'],
         sections: [
           {id:'prep_pl', name:'Підготовка', sub:'документи та клініка'},
@@ -643,7 +651,7 @@ function defaultDB() {
         state: {}
       },
       {
-        id: 'birth_ua', name: 'Пологи в Україні', emoji: '🇺🇦', color: '#1d62a8',
+        id: 'birth_ua', name: 'Пологи в Україні', emoji: '🇺🇦', color: '#1d62a8', currency: 'UAH',
         categories: ['milestone','medical','finance','domestic'],
         sections: [
           {id:'prep_ua', name:'Підготовка', sub:'документи та пологовий'},
@@ -683,8 +691,22 @@ function defaultDB() {
 // ═══════════════════════════════════
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const num = v => parseFloat(v) || 0;
-const fmt = n => n ? n.toLocaleString('uk-UA') + '₴' : '—';
-const fmtN = n => n ? n.toLocaleString('uk-UA') + '₴' : '';
+const CUR_SYM = { UAH: '₴', PLN: 'zł', USD: '$', EUR: '€' };
+function curOf(folderId) {
+  const f = DB.folders.find(f => f.id === folderId) || DB.folders.find(f => f.id === DB.activeFolder);
+  return (f && f.currency) || 'UAH';
+}
+function curSym(folderId) { return CUR_SYM[curOf(folderId)] || '₴'; }
+const fmt = n => n ? n.toLocaleString('uk-UA') + curSym() : '—';
+const fmtN = n => n ? n.toLocaleString('uk-UA') + curSym() : '';
+
+function setFolderCurrency(cur) {
+  const f = DB.folders.find(f => f.id === DB.activeFolder);
+  if (!f) return;
+  f.currency = cur;
+  saveDB(DB);
+  renderAll();
+}
 
 const CAT_LABELS = {
   milestone: '⭐ Milestone', medical: '🩺 Медицина', finance: '💰 Фінанси',
@@ -881,6 +903,15 @@ function renderTask(folder, task, container) {
 }
 
 function renderAll() {
+  const curF = DB.folders.find(f => f.id === DB.activeFolder);
+  const curSel = document.getElementById('curSel');
+  if (curSel && curF) curSel.value = curF.currency || 'UAH';
+  // Update modal symbols
+  const sym = curSym();
+  ['mEstSym','mSpentSym','aEstSym','aSpentSym'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = sym;
+  });
   updateTopbar();
   const f = curFolder();
   const list = document.getElementById('taskList');
