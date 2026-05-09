@@ -262,7 +262,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
   <div style="display:flex;gap:5px;padding:6px 6px 2px;">
     <button onclick="manualPull()" id="pullBtn" style="flex:1;padding:7px 4px;border-radius:7px;border:1px solid rgba(255,255,255,.12);background:transparent;color:rgba(255,255,255,.5);font-family:'DM Sans',sans-serif;font-size:10px;cursor:pointer;">⬇ Оновити</button>
   </div>
-  <button onclick="copyShareLink()" id="shareBtn" style="display:block;margin:4px 6px 2px;width:calc(100% - 12px);padding:7px;border-radius:7px;border:1px solid rgba(255,255,255,.08);background:transparent;color:rgba(255,255,255,.35);font-family:'DM Sans',sans-serif;font-size:10px;cursor:pointer;">🔗 Скопіювати посилання для мами</button>
+  <button onclick="copyShareLink()" id="shareBtn" style="display:block;margin:4px 6px 2px;width:calc(100% - 12px);padding:7px 4px;border-radius:7px;border:1px solid rgba(255,255,255,.08);background:transparent;color:rgba(255,255,255,.5);font-family:'DM Sans',sans-serif;font-size:9px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🔗 Посилання для мами</button>
+  <button onclick="resetToDefaults()" id="resetBtn" style="display:block;margin:2px 6px 2px;width:calc(100% - 12px);padding:6px 4px;border-radius:7px;border:1px solid rgba(255,255,255,.08);background:transparent;color:rgba(255,255,255,.4);font-family:'DM Sans',sans-serif;font-size:9px;cursor:pointer;">↺ Відновити дефолтні розділи</button>
   <div class="sb-foot"><span id="syncDot" style="opacity:0.3;margin-right:4px;">●</span>Baby Timeline v3.0</div>
 </aside>
 
@@ -481,6 +482,22 @@ async function manualPull() {
   btn.textContent = '✅'; setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
 }
 
+function resetToDefaults() {
+  if (!confirm('Це додасть Жилто і Ремонт до твоїх даних. Продовжити?')) return;
+  const defaults = defaultDB();
+  // Merge: keep existing folders, add missing default folders
+  const existingIds = new Set((DB?.folders || []).map(f => f.id));
+  for (const f of defaults.folders) {
+    if (!existingIds.has(f.id)) {
+      DB.folders.push(f);
+    }
+  }
+  saveDB(DB);
+  renderSidebar();
+  renderAll();
+  alert('Готово! Розділи відновлені.');
+}
+
 function copyShareLink() {
   const spaceId = localStorage.getItem(SPACE_KEY);
   if (!spaceId) { alert('Зачекай — підключення...'); return; }
@@ -576,10 +593,14 @@ function signOut() {
 async function createSpace(uid) {
   const spaceId = uid.slice(0,8) + Date.now().toString(36);
   const ref = fbDB.ref('spaces/' + spaceId);
+  // Ensure we have valid DB to push
+  if (!isValid(DB)) DB = defaultDB();
   await ref.set(DB);
+  saveLocal(DB);
   localStorage.setItem(SPACE_KEY, spaceId);
   spaceRef = ref;
   document.getElementById('authScreen')?.remove();
+  renderSidebar(); renderAll();
   startListening(ref);
   showSync('✅');
 }
@@ -621,9 +642,15 @@ fbAuth.onAuthStateChanged(async user => {
       const snap = await spaceRef.once('value');
       const data = snap.val();
       if (isValid(data)) {
-        DB = data; saveLocal(DB);
-        renderSidebar(); renderAll();
+        DB = data;
+      } else {
+        // Space exists but has no data — push current DB (defaults if needed)
+        const local = loadDB();
+        DB = (local && local.folders?.length > 0) ? local : defaultDB();
+        await spaceRef.set(DB);
       }
+      saveLocal(DB);
+      renderSidebar(); renderAll();
       document.getElementById('authScreen')?.remove();
       startListening(spaceRef);
       showSync('✅');
